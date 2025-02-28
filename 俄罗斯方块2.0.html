@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>俄罗斯方块 - 闯关模式</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid black;
+            background-color: #f0f0f0;
+        }
+        #info {
+            margin-top: 10px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="200" height="400"></canvas>
+    <div id="info">
+        <div id="level">关卡: 1</div>
+        <div id="lines">已消除行: 0</div>
+        <div id="score">得分: 0</div>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const context = canvas.getContext('2d');
+
+        // 游戏常量
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 20;
+        const LINES_PER_LEVEL = 10; // 每关需要消除的行数
+
+        // 方块形状（I, O, T, L, J, S, Z）
+        const SHAPES = [
+            [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], // I
+            [[1, 1], [1, 1]], // O
+            [[0, 1, 0], [1, 1, 1], [0, 0, 0]], // T
+            [[0, 0, 1], [1, 1, 1], [0, 0, 0]], // L
+            [[1, 0, 0], [1, 1, 1], [0, 0, 0]], // J
+            [[0, 1, 1], [1, 1, 0], [0, 0, 0]], // S
+            [[1, 1, 0], [0, 1, 1], [0, 0, 0]]  // Z
+        ];
+
+        // 随机生成方块
+        function getRandomShape() {
+            const index = Math.floor(Math.random() * SHAPES.length);
+            return SHAPES[index].map(row => [...row]); // 深拷贝
+        }
+
+        // 游戏状态
+        let currentShape = getRandomShape();
+        let currentX = Math.floor(COLS / 2) - Math.floor(currentShape[0].length / 2);
+        let currentY = 0;
+        let grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        let score = 0;
+        let linesCleared = 0;
+        let level = 1;
+        let isGameOver = false;
+        let dropInterval = 1000; // 初始下落间隔（毫秒）
+        let gameInterval;
+
+        // 更新界面显示
+        function updateInfo() {
+            document.getElementById('level').textContent = `关卡: ${level}`;
+            document.getElementById('lines').textContent = `已消除行: ${linesCleared}`;
+            document.getElementById('score').textContent = `得分: ${score}`;
+        }
+
+        // 绘制游戏
+        function draw() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            // 绘制网格中的固定方块
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (grid[row][col]) {
+                        context.fillStyle = 'blue';
+                        context.fillRect(col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+                    }
+                }
+            }
+            // 绘制当前下落方块
+            context.fillStyle = 'red';
+            currentShape.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) {
+                        context.fillRect((currentX + x) * BLOCK_SIZE, (currentY + y) * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+                    }
+                });
+            });
+        }
+
+        // 检查是否可以移动到指定位置
+        function canMove(shape, x, y) {
+            return shape.every((row, dy) => {
+                return row.every((cell, dx) => {
+                    if (!cell) return true;
+                    const newX = x + dx;
+                    const newY = y + dy;
+                    return newX >= 0 && newX < COLS && newY < ROWS && (newY < 0 || !grid[newY][newX]);
+                });
+            });
+        }
+
+        // 方块下落逻辑
+        function drop() {
+            if (isGameOver) return;
+            if (canMove(currentShape, currentX, currentY + 1)) {
+                currentY++;
+            } else {
+                // 固定方块到网格
+                currentShape.forEach((row, y) => {
+                    row.forEach((cell, x) => {
+                        if (cell && currentY + y >= 0) {
+                            grid[currentY + y][currentX + x] = 1;
+                        }
+                    });
+                });
+                checkLines();
+                spawnNewShape();
+            }
+            draw();
+        }
+
+        // 生成新方块并检查游戏结束
+        function spawnNewShape() {
+            currentShape = getRandomShape();
+            currentX = Math.floor(COLS / 2) - Math.floor(currentShape[0].length / 2);
+            currentY = 0;
+            if (!canMove(currentShape, currentX, currentY)) {
+                isGameOver = true;
+                alert('游戏结束！得分: ' + score);
+                resetGame();
+            }
+        }
+
+        // 检查并消除行
+        function checkLines() {
+            let lines = 0;
+            for (let row = ROWS - 1; row >= 0; row--) {
+                if (grid[row].every(cell => cell)) {
+                    grid.splice(row, 1);
+                    grid.unshift(Array(COLS).fill(0));
+                    lines++;
+                    row++; // 重新检查当前行
+                }
+            }
+            if (lines > 0) {
+                linesCleared += lines;
+                score += lines * 100;
+                checkLevelUp();
+            }
+            updateInfo();
+        }
+
+        // 检查是否升级
+        function checkLevelUp() {
+            if (linesCleared >= LINES_PER_LEVEL * level) {
+                level++;
+                dropInterval = Math.max(200, dropInterval - 100); // 减少100ms，最小200ms
+                clearInterval(gameInterval);
+                gameInterval = setInterval(drop, dropInterval);
+                updateInfo();
+            }
+        }
+
+        // 旋转方块
+        function rotate() {
+            const rows = currentShape.length;
+            const cols = currentShape[0].length;
+            const newShape = Array(cols).fill().map(() => Array(rows).fill(0));
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    newShape[x][rows - 1 - y] = currentShape[y][x];
+                }
+            }
+            if (canMove(newShape, currentX, currentY)) {
+                currentShape = newShape;
+            }
+        }
+
+        // 重置游戏
+        function resetGame() {
+            grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+            score = 0;
+            linesCleared = 0;
+            level = 1;
+            dropInterval = 1000;
+            isGameOver = false;
+            clearInterval(gameInterval);
+            gameInterval = setInterval(drop, dropInterval);
+            spawnNewShape();
+            updateInfo();
+        }
+
+        // 键盘控制
+        document.addEventListener('keydown', (event) => {
+            if (isGameOver) return;
+            switch (event.key) {
+                case 'ArrowLeft':
+                    if (canMove(currentShape, currentX - 1, currentY)) currentX--;
+                    break;
+                case 'ArrowRight':
+                    if (canMove(currentShape, currentX + 1, currentY)) currentX++;
+                    break;
+                case 'ArrowDown':
+                    drop();
+                    break;
+                case 'ArrowUp':
+                    rotate();
+                    break;
+            }
+            draw();
+        });
+
+        // 启动游戏
+        gameInterval = setInterval(drop, dropInterval);
+        updateInfo();
+        draw();
+    </script>
+</body>
+</html>
